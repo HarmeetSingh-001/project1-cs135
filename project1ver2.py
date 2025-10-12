@@ -32,14 +32,14 @@ for label in y_train_df['Coarse Label']:
 		y_tr_N.append(1)
 
 param_grid = {
-	'features__tfidf__preprocessor': [None, removePos.remove_pos], 
+	'features__tfidf__preprocessor': [None], #, removePos.remove_pos
 	#'features__tfidf__min_df': [2,3,4,5,6,7], #token frequency
 	#'features__tfidf__max_df': [100,200,300],
-	'features__tfidf__min_count': [0,1,2,3,4,5],
+	'features__tfidf__min_count': [4],
 	'clf__C': [0.01, 0.1, 1.0, 10.0, 100.0],	  # Regularization strength
 	'clf__penalty': ['l2'],				 
 	'clf__solver': ['lbfgs'], #,'sag','saga'
-	'clf__max_iter': [1500]
+	'clf__max_iter': [500]
 }
 
 readability_pipeline = Pipeline([
