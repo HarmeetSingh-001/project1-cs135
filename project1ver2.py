@@ -36,12 +36,12 @@ for label in y_train_df['Coarse Label']:
 
 param_grid = {
 	'features__tfidf__preprocessor': [removePos.remove_pos], #, removePos.remove_pos
-	'features__tfidf__min_df': [1], #token frequency
-	'features__tfidf__max_df': [2],
-	'features__tfidf__min_count': [1],
-	'clf__C': [1.0],	  # Regularization strength
+	'features__tfidf__min_df': [10], #token frequency
+	'features__tfidf__max_df': [.25],
+	'features__tfidf__min_count': [2],
+	'clf__C': [0.1],	  # Regularization strength
 	'clf__penalty': ['l2'],				 
-	'clf__solver': ['lbfgs'], #,'sag','saga'
+	'clf__solver': ['lbfgs'], #,'sag','saga', 'lbfgs'
 	'clf__max_iter': [500]
 }
 
@@ -57,6 +57,7 @@ custom_tfidf = customVectorizer.CustomFilteredTfidfVectorizer()
 full_pipeline = Pipeline([
 	#Preprocessing pipeline stuff
 	('features', FeatureUnion([
+		#('readability', readability_pipeline),
 		('tfidf', custom_tfidf)
 	])),
 	('clf', sklearn.linear_model.LogisticRegression(max_iter=1000))

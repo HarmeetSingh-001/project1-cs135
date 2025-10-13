@@ -26,6 +26,8 @@ class CustomFilteredTfidfVectorizer(BaseEstimator, TransformerMixin):
         # Count token frequency across all documents
         token_counts = Counter()
         for doc in X:
+            if self.preprocessor:
+                doc = self.preprocessor(doc)
             tokens = self.tokenize_text(doc)
             token_counts.update(tokens)
         
@@ -45,6 +47,10 @@ class CustomFilteredTfidfVectorizer(BaseEstimator, TransformerMixin):
             preprocessor=self.preprocessor
         )
         self.vectorizer_.fit(X)
+
+        print(f"[INFO] Fitted TF-IDF with min_count={self.min_count}, min_df={self.min_df}, max_df={self.max_df} "
+          f"→ Vocabulary size: {len(self.vectorizer_.vocabulary_)}")
+
         return self
     
     def transform(self, X):
