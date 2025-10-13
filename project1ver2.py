@@ -17,11 +17,14 @@ from sklearn.preprocessing import FunctionTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import roc_curve, roc_auc_score
 import matplotlib.pyplot as plt
+import nltk
+nltk.download('punkt_tab')
 
 # read in data
 data_dir = 'data_readinglevel'
 x_train_df = pd.read_csv(os.path.join(data_dir, 'x_train.csv'))
 y_train_df = pd.read_csv(os.path.join(data_dir, 'y_train.csv'))
+x_test_df = pd.read_csv(os.path.join(data_dir, 'x_test.csv'))
 
 # clean training labels to be simply 0 or 1
 y_tr_N = []
@@ -32,11 +35,11 @@ for label in y_train_df['Coarse Label']:
 		y_tr_N.append(1)
 
 param_grid = {
-	'features__tfidf__preprocessor': [None], #, removePos.remove_pos
-	#'features__tfidf__min_df': [2,3,4,5,6,7], #token frequency
-	#'features__tfidf__max_df': [100,200,300],
-	'features__tfidf__min_count': [4],
-	'clf__C': [0.01, 0.1, 1.0, 10.0, 100.0],	  # Regularization strength
+	'features__tfidf__preprocessor': [removePos.remove_pos], #, removePos.remove_pos
+	'features__tfidf__min_df': [1], #token frequency
+	'features__tfidf__max_df': [2],
+	'features__tfidf__min_count': [1],
+	'clf__C': [1.0],	  # Regularization strength
 	'clf__penalty': ['l2'],				 
 	'clf__solver': ['lbfgs'], #,'sag','saga'
 	'clf__max_iter': [500]
@@ -54,7 +57,6 @@ custom_tfidf = customVectorizer.CustomFilteredTfidfVectorizer()
 full_pipeline = Pipeline([
 	#Preprocessing pipeline stuff
 	('features', FeatureUnion([
-		('readability', readability_pipeline),
 		('tfidf', custom_tfidf)
 	])),
 	('clf', sklearn.linear_model.LogisticRegression(max_iter=1000))
@@ -71,6 +73,12 @@ best_model = grid_search.best_estimator_
 y_hat = best_model.predict(x_train_df['text'])
 cm = confusion_matrix(y_tr_N, y_hat)
 print(cm)
+
+yproba1_test = best_model.predict_proba(x_test_df['text'])
+
+with open("yproba1_test.txt", "w") as f:
+	for entry in yproba1_test[:,1]:
+		f.write(f"{entry}\n")
 
 y_scores = best_model.predict_proba(x_train_df['text'])[:, 1]
 
