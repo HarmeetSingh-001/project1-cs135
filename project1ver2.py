@@ -43,9 +43,10 @@ X_train, X_val, y_train, y_val = train_test_split(
     x_train_df['text'], y_tr_N, test_size=0.2, random_state=42)
 
 param_grid = {
-	'features__tfidf__tfidf__preprocessor': [None,removePos.remove_pos], #, removePos.remove_pos
-	'features__tfidf__tfidf__min_df': [10], #token frequency
-	'features__tfidf__tfidf__min_count': [3],
+	'features__tfidf__tfidf__preprocessor': [None], #, removePos.remove_pos
+	#'features__tfidf__tfidf__min_df': [1], #token frequency, has no effect
+	'features__tfidf__tfidf__min_count': [11],
+	'features__tfidf__tfidf__max_count': [12500],
 	'features__tfidf__tfidf__ngram_range': [
         (1, 1),   # unigrams only
         #(1, 2),   # unigrams + bigrams
@@ -53,7 +54,7 @@ param_grid = {
         #(2, 2),   # bigrams only
         #(2, 3),   # bigrams + trigrams
     ],
-	'clf__C': [0.1],	  # Regularization strength
+	'clf__C': [0.3],	  # Regularization strength
 	'clf__penalty': ['l2'],				 
 	'clf__solver': ['lbfgs'], #,'sag','saga', 'lbfgs'
 	'clf__max_iter': [500],
@@ -104,19 +105,19 @@ with open("yproba1_test.txt", "w") as f:
 	for entry in yproba1_test[:,1]:
 		f.write(f"{entry}\n")
 
-#y_scores = best_model.predict_proba(x_train_df['text'])[:, 1]
+y_scores = best_model.predict_proba(x_train_df['text'])[:, 1]
 
-#fpr, tpr, thresholds = roc_curve(y_tr_N, y_hat)
-#auc_score = roc_auc_score(y_tr_N, y_hat)
-#plt.figure(figsize=(8,6))
-#plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc_score:.3f})')
-#plt.plot([0, 1], [0, 1], 'k--', label='Random guess')
-#plt.xlabel('False Positive Rate')
-#plt.ylabel('True Positive Rate')
-#plt.title('ROC Curve for Best Model')
-#plt.legend(loc='lower right')
-#plt.grid(True)
-#plt.show()
+fpr, tpr, thresholds = roc_curve(y_tr_N, y_hat)
+auc_score = roc_auc_score(y_tr_N, y_hat)
+plt.figure(figsize=(8,6))
+plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc_score:.3f})')
+plt.plot([0, 1], [0, 1], 'k--', label='Random guess')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve for Best Model')
+plt.legend(loc='lower right')
+plt.grid(True)
+plt.show()
 		
 end_time = time.time()  # ⏱ End timer
 
