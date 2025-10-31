@@ -1,150 +1,127 @@
 import numpy as np
 import pandas as pd
 import os
-import nltk
-from nltk import pos_tag
-import textwrap
-import sklearn.linear_model
-import sklearn.model_selection
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, GroupShuffleSplit
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import Pipeline
 
-# read in data
+# === 1. Read and prepare data ===
 data_dir = 'data_readinglevel'
 x_train_df = pd.read_csv(os.path.join(data_dir, 'x_train.csv'))
 y_train_df = pd.read_csv(os.path.join(data_dir, 'y_train.csv'))
+x_test_df = pd.read_csv(os.path.join(data_dir, 'x_test.csv'))
 
-# Function from day10 lab, use to create token of each line
-def tokenize_text(raw_text):
-    list_of_tokens = raw_text.split() # split method divides on whitespace by default
-    for pp in range(len(list_of_tokens)):
-        cur_token = list_of_tokens[pp]
-        # Remove punctuation
-        for punc in ['?', '!', '_', '.', ',', '"', '/']:
-            cur_token = cur_token.replace(punc, "")
-        # Turn to lower case
-        clean_token = cur_token.lower()
-        # Replace the cleaned token into the original list
-        list_of_tokens[pp] = clean_token
-    return list_of_tokens
+# Binary labels: 0 = simpler, 1 = more complex
+y_tr_N = [0 if label == "Key Stage 2-3" else 1 for label in y_train_df['Coarse Label']]
 
-# function from day1- lab, use to turn any text into a feature vector using the given dictionary
-def transform_text_into_feature_vector(text, vocab_dict):
-    V = len(vocab_dict.keys())
-    count_V = np.zeros(V)
-    for tok in tokenize_text(text):
-        if tok in vocab_dict:
-            vv = vocab_dict[tok]
-            count_V[vv] += 1
-    return count_V
+# Make sure there’s an author column in your data
+if 'author' not in x_train_df.columns:
+    raise ValueError("x_train.csv must contain an 'author' column for grouped splitting.")
 
-# use to turn some list into an enuermated dict
-def turn_list_into_dict(vocab_list):
-    vocab_dict = dict()
-    for vocab_id, tok in enumerate(vocab_list):
-        vocab_dict[tok] = vocab_id
-    return vocab_dict
+authors = x_train_df['author']
 
+# === 2. Grouped Train/Validation Split ===
+gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+train_idx, val_idx = next(gss.split(x_train_df['text'], y_tr_N, groups=authors))
 
-# Function from day10 lab, use to count the tokens
-tok_count_dict = dict()
-for passage in x_train_df['text']:
-    tok_list = tokenize_text(passage)
-    for tok in tok_list:
-        if tok in tok_count_dict:
-            tok_count_dict[tok] += 1
-        else:
-            tok_count_dict[tok] = 1
+X_train, X_val = x_train_df['text'].iloc[train_idx], x_train_df['text'].iloc[val_idx]
+y_train, y_val = np.array(y_tr_N)[train_idx], np.array(y_tr_N)[val_idx]
 
-# this will store all of our bags of words
-all_bows = []
+print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
+print(f"Unique authors in train: {len(set(authors.iloc[train_idx]))}, val: {len(set(authors.iloc[val_idx]))}")
 
-# this will store different bags of words where each index has only elements that have at least more than that value
-# index 0 will be entirely full, index 1 will have elements that occur more than 1 time and so on up to 10
-bow_only_greater_than_i = []
-bow_full_sorted = list(sorted(tok_count_dict, key=tok_count_dict.get, reverse=True))
-bow_only_greater_than_i.append(bow_full_sorted)
-for i in range(1,11):
-    current_bow = [w for w in bow_full_sorted if tok_count_dict[w] > i]
-    bow_only_greater_than_i.append(current_bow)
+# === 3. Define pipeline ===
+pipeline = Pipeline([
+    ('vectorizer', CountVectorizer(stop_words='english', ngram_range=(1, 1), min_df=1)),
+    ('tfidf', TfidfTransformer()),
+    ('clf', LogisticRegression(max_iter=1000, solver='lbfgs'))
+])
 
-# same as the above but this time we also remove parts of speech using NLTK, have to install it into your environment, and then also removing elements that occur a certain amount of times.
-bow_only_greater_than_i_removed_POS = []
-pos_tags = nltk.pos_tag(bow_full_sorted)
-bow_full_sorted_removed_POS  = [w for w, pos_tag in pos_tags if pos_tag not in ['DT','PDT', 'WDT', 'IN','PRP', 'PRP$', 'WP', 'WP$' 'CC','TO']]
-bow_only_greater_than_i_removed_POS.append(bow_full_sorted_removed_POS)
-for i in range(1,11):
-    current_bow = [w for w in bow_full_sorted_removed_POS if tok_count_dict[w] > i]
-    bow_only_greater_than_i_removed_POS.append(current_bow)
+# === 4. Parameter grid ===
+param_grid = {
+    'vectorizer__max_features': [2500],
+    'vectorizer__min_df': [3, 5, 7, 9, 11, 13],
+    'clf__C': [0.001,0.01, 0.1]
+}
 
+# === 5. Grouped CV inside grid search ===
+grouped_cv = GroupShuffleSplit(n_splits=10, test_size=0.1, random_state=42)
 
-all_bows.append(bow_only_greater_than_i)
-all_bows.append(bow_only_greater_than_i_removed_POS)
+grid_search = GridSearchCV(
+    estimator=pipeline,
+    param_grid=param_grid,
+    cv=grouped_cv,
+    scoring='roc_auc',
+    n_jobs=-1
+)
+grid_search.fit(X_train, y_train, groups=authors.iloc[train_idx])
 
-# clean training labels to be simply 0 or 1
-y_tr_N = []
-for label in y_train_df['Coarse Label']:
-    if label == "Key Stage 2-3":
-        y_tr_N.append(0)
-    else:
-        y_tr_N.append(1)
+print("\nBest Params:", grid_search.best_params_)
+print(f"Best CV AUROC: {grid_search.best_score_:.3f}")
 
-# get number of items in our training set
-N = len(x_train_df)
+best_model = grid_search.best_estimator_
 
-# go through all of our different bag of words
-# train a lr model for each, compute CV on the result, store the bag number and the CV amount for the result with the best accuracy
+# === 6. Evaluate on held-out validation set ===
+def evaluateHeldout(best_model, X_val, y_val):
+    y_val_proba = best_model.predict_proba(X_val)[:, 1]
+    val_auc = roc_auc_score(y_val, y_val_proba)
+    print(f"Validation AUROC: {val_auc:.3f}")
+    return val_auc
 
-# RESULT
-# Default or POS: 0 Removed Elements: 0 Best Fold Amount: 3 Accuracy: 0.6265965101636986
-# Default or POS: 0 Removed Elements: 1 Best Fold Amount: 3 Accuracy: 0.6280358121808972
-# Default or POS: 0 Removed Elements: 2 Best Fold Amount: 3 Accuracy: 0.6244366829498756
-# Default or POS: 0 Removed Elements: 3 Best Fold Amount: 3 Accuracy: 0.6220974529269174
-# Default or POS: 0 Removed Elements: 4 Best Fold Amount: 3 Accuracy: 0.6208372623228459
-# Default or POS: 0 Removed Elements: 5 Best Fold Amount: 3 Accuracy: 0.6154380828162996
-# Default or POS: 0 Removed Elements: 6 Best Fold Amount: 3 Accuracy: 0.619758417167965
-# Default or POS: 0 Removed Elements: 7 Best Fold Amount: 3 Accuracy: 0.6140006263071539
-# Default or POS: 0 Removed Elements: 8 Best Fold Amount: 3 Accuracy: 0.6129194499842062
-# Default or POS: 0 Removed Elements: 9 Best Fold Amount: 3 Accuracy: 0.6080615871291548
-# Default or POS: 0 Removed Elements: 10 Best Fold Amount: 3 Accuracy: 0.6087811410057514
-# Default or POS: 1 Removed Elements: 0 Best Fold Amount: 3 Accuracy: 0.6192170033844675
-# Default or POS: 1 Removed Elements: 1 Best Fold Amount: 3 Accuracy: 0.6193973775136306
-# Default or POS: 1 Removed Elements: 2 Best Fold Amount: 3 Accuracy: 0.6170576618306586
-# Default or POS: 1 Removed Elements: 3 Best Fold Amount: 3 Accuracy: 0.6109390255795186
-# Default or POS: 1 Removed Elements: 4 Best Fold Amount: 3 Accuracy: 0.6082403100142706
-# Default or POS: 1 Removed Elements: 5 Best Fold Amount: 3 Accuracy: 0.6071605906713647
-# Default or POS: 1 Removed Elements: 6 Best Fold Amount: 3 Accuracy: 0.6091401408880274
-# Default or POS: 1 Removed Elements: 7 Best Fold Amount: 5 Accuracy: 0.6046474431615824
-# Default or POS: 1 Removed Elements: 8 Best Fold Amount: 5 Accuracy: 0.6012264535806099
-# Default or POS: 1 Removed Elements: 9 Best Fold Amount: 3 Accuracy: 0.5987044727733167
-# Default or POS: 1 Removed Elements: 10 Best Fold Amount: 3 Accuracy: 0.6053619973758818
+val_auc = evaluateHeldout(best_model, X_val, y_val)
 
-for i in range(0,2):
-    current_bow_list = all_bows[i]
-    for j in range (0,11):
-        current_bow = current_bow_list[j]
-        V = len(current_bow)
-
-        # make our initial vector for x_tr
-        x_tr_NV = np.zeros((N, V))
-        # using vocab words, create the vector with true values based on word appearance
-        for k, line in enumerate(x_train_df['text']):
-            x_tr_NV[k] = transform_text_into_feature_vector(line, turn_list_into_dict(current_bow))
-        
-        # create lr model
-        clf = sklearn.linear_model.LogisticRegression(C=1000.0, max_iter=250) 
-        cv_scores = []
-        # run cv using 3-5 folds, take best and print our index with our score
-        for k in range(3,6):
-            score = sklearn.model_selection.cross_val_score(clf, x_tr_NV, y_tr_N, cv=k, scoring='accuracy')
-            cv_scores.append(score.mean())
-
-        cv_scores = np.array(cv_scores)
-        best_fold = np.argmax(cv_scores)
-
-        print("Default or POS: " + str(i) + " Removed Elements: " + str(j) + " Best Fold Amount: " + str(best_fold + 3) + " Accuracy: " + str(cv_scores[best_fold]))
+# === 7. Export test predictions ===
+def exportPredictions(best_model, x_test_df):
+    yproba1_test = best_model.predict_proba(x_test_df['text'])
+    with open("yproba1_test.txt", "w") as f:
+        for entry in yproba1_test[:, 1]:
+            f.write(f"{entry}\n")
 
 
 
+# === 8. Generic plotting function for hyperparameter vs score (always include C) ===
+def plot_hyperparam_vs_score(results_df, hyperparam):
+    """
+    Plots AUROC vs one hyperparameter, with different lines for clf__C values.
+    Example: plot_hyperparam_vs_score(results_df, 'param_vectorizer__min_df')
+    """
+    if hyperparam not in results_df.columns:
+        print(f"⚠️ {hyperparam} not found in results DataFrame columns.")
+        print("Available columns:\n", list(results_df.columns))
+        return
+    
+    if 'param_clf__C' not in results_df.columns:
+        print("⚠️ Could not find 'param_clf__C' in results DataFrame.")
+        return
+    
+    plt.figure(figsize=(8,6))
+    
+    # Plot AUROC vs hyperparameter, color-coded by C
+    for c_val in sorted(results_df['param_clf__C'].unique()):
+        subset = results_df[results_df['param_clf__C'] == c_val]
+        plt.plot(
+            subset[hyperparam],
+            subset['mean_test_score'],
+            marker='o',
+            label=f'C={c_val}'
+        )
+
+    plt.xlabel(hyperparam.replace('param_', '').replace('__', ' '))
+    plt.ylabel('Mean CV AUROC')
+    plt.title(f'AUROC vs {hyperparam.replace("param_", "")} (colored by C)')
+    plt.legend(title='Regularization Strength (C)')
+    plt.grid(True)
+    plt.show()
 
 
+# === 9. Plot hyperparameter relationships ===
+results_df = pd.DataFrame(grid_search.cv_results_)
+# Example: visualize how AUROC changes with min_df
+plot_hyperparam_vs_score(results_df, 'param_vectorizer__min_df')
+# You can also plot for other hyperparams by changing the string
+# e.g., plot_hyperparam_vs_score(results_df, 'param_clf__C')
 
-
+exportPredictions(best_model, x_test_df)
